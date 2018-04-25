@@ -1,6 +1,6 @@
 # Small Projects
 The small things, hopefully with some measure of variety. Some were more useful than others.
-
+<br></br>
 
 ## addCSSLink
 Thingy to add a css resource line to the top of a bunch of html pages.
