@@ -12,31 +12,27 @@ int main (int argc, char** argv) {
         char* name = argv[1];
         char* token = strtok(path, ";");
         struct dirent* dirPtr;
-        int found = 1;
-        
-        while (token && found) {
+
+        while (token) {
             DIR* dir = opendir(token);
             dirPtr = readdir(dir);
-            while (dirPtr && found) {
-                found = strcmp(dirPtr->d_name, name);
+            while (dirPtr) {
+                if (NULL == strcmp(dirPtr->d_name, name)) {
+                    if (token[strlen(token) - 1] == '\\') {
+                        printf("%s%s\n", token, name);
+                    } else {
+                        printf("%s\\%s\n", token, name);
+                    }
+                    return 0;
+                }
                 dirPtr = readdir(dir);
             }
             closedir(dir);
             *(token-1) = ';';
-            if (found) {
-                token = strtok(NULL, ";");
-            }
+            token = strtok(NULL, ";");
         }
-        
-        if (found == 0) {
-            if (token[strlen(token) - 1] == '\\') {
-                printf("%s%s\n", token, name);
-            } else {
-                printf("%s\\%s\n", token, name);
-            }
-        } else {
-            printf("which: no '%s' in (%s)", name, path);
-        }
+
+        printf("which: no '%s' in (%s)", name, path);
     }
     return 0;
 }
