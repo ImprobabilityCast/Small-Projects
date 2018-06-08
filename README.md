@@ -2,6 +2,9 @@
 The small things, hopefully with some measure of variety. Some were more useful than others.
 <br></br>
 
+## ArgsParser
+There's some odd Windows API that results in command line arguments being passed as a single long string, not an array of strings. This project seeks to ammend that.
+
 ## addCSSLink
 Thingy to add a css resource line to the top of a bunch of html pages.
 
