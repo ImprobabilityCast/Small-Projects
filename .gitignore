@@ -259,3 +259,10 @@ paket-files/
 # Python Tools for Visual Studio (PTVS)
 __pycache__/
 *.pyc
+
+# ignore gradle stuff just there to make a vs plugin work
+.project
+.settings
+.vscode
+.gradle
+build.gradle
