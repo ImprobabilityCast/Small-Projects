@@ -3,12 +3,17 @@ import java.awt.Graphics2D;
 import java.awt.print.Printable;
 import java.awt.print.PageFormat;
 import java.io.*;
-import java.util.Deque;
 import java.util.ArrayDeque;
+import java.util.List;
+import java.util.LinkedList;
+import java.util.Queue;
+
 
 class MyPrinter implements Printable {
 
-    private static int LINE_HEIGHT = 12;
+    private static int LINE_HEIGHT = 10;
+
+    private static float FONT_SIZE = 10.0f;
 
     /**
      * Index of the last page in the current file.
@@ -20,17 +25,18 @@ class MyPrinter implements Printable {
      * with the same index.
      */
     private int previousIndex;
-    private Deque<String> previousPage;
+
+    private int position;
 
     /**
      * Holds all the lines of the current file.
      */
-    private Deque<String> lines;
+    private List<String> lines;
 
     /**
      * List of files to print.
      */
-    private Deque<String> fileNames;
+    private Queue<String> fileNames;
 
     /*
      * Constructors
@@ -39,24 +45,25 @@ class MyPrinter implements Printable {
     public MyPrinter(String... files) {
         this.lastPage = -1;
         this.previousIndex = -1;
-        this.lines = new ArrayDeque<>();
+        this.lines = new LinkedList<>();
         this.fileNames = new ArrayDeque<>();
-        this.previousPage = new ArrayDeque<>();
         for (String f : files) {
-            this.fileNames.addLast(f);
+            this.fileNames.add(f);
         }
     }
 
     /**
      * Reads the file specified by fileName into buffer.
+     * replaces buffer.
      */
-    private static void fillBuffer(Deque<String> buffer, String fileName) {
+    private static void fillBuffer(List<String> buffer, String fileName) {
+        buffer.clear();
         BufferedReader reader = null;
         try {
             reader = new BufferedReader(new FileReader(fileName));
             String line = reader.readLine();
             while (line != null) {
-                buffer.addLast(line);
+                buffer.add(line);
                 line = reader.readLine();
             }
             reader.close();
@@ -72,39 +79,56 @@ class MyPrinter implements Printable {
         }
     }
 
+    /**
+     * ensures that the buffer.size is a constant multiple of pageSize
+     * and that buffer.size is > 0
+     */
+    private static void padBuffer(List<String> buffer, int pageSize) {
+        if (buffer.size() == 0) {
+            buffer.add("");
+        }
+        while (buffer.size() % pageSize != 0) {
+            buffer.add("");
+        }
+    }
+
     @Override
     public int print(Graphics g, PageFormat pf, int pageIndex) {
         Graphics2D g2d = (Graphics2D) g;
         g2d.translate(pf.getImageableX(), pf.getImageableY());
-        Deque<String> page;
+        g2d.setFont(g2d.getFont().deriveFont(MyPrinter.FONT_SIZE));
+
+        final int linesPerPage = ((int) pf.getImageableHeight() / MyPrinter.LINE_HEIGHT) * 2; 
 
         if (pageIndex == this.previousIndex) {
-            page = this.previousPage;
+            this.position -= linesPerPage;
         } else {
-            page = this.lines;
-            this.previousPage.clear();
             this.previousIndex = pageIndex;
 
             if (pageIndex > this.lastPage) {
                 if (this.fileNames.size() > 0) {
-                    MyPrinter.fillBuffer(this.lines, this.fileNames.pollFirst());
-                    this.lastPage += ((this.lines.size() * MyPrinter.LINE_HEIGHT)
-                            / pf.getImageableHeight()) + 1;
+                    MyPrinter.fillBuffer(this.lines, this.fileNames.poll());
+                    MyPrinter.padBuffer(this.lines, linesPerPage);
+                    this.lastPage += this.lines.size() / linesPerPage;
                 } else {
                     return Printable.NO_SUCH_PAGE;
                 }
             }
         }
 
-        int pos = MyPrinter.LINE_HEIGHT;
-        Deque<String> holder = new ArrayDeque<>();
-        while (page.size() > 0 && pos < pf.getImageableHeight()) {
-            String s = page.pollFirst();
-            holder.addLast(s);
-            g2d.drawString(s, 0, pos);
-            pos += MyPrinter.LINE_HEIGHT;
+        int rightPos = this.position + (linesPerPage / 2);
+        final int farX = (int) pf.getImageableWidth() / 2;
+        int yCoord = MyPrinter.LINE_HEIGHT;
+        while (yCoord < pf.getImageableHeight()) {
+            g2d.drawString(this.lines.get(this.position), 0, yCoord);
+            g2d.drawString(this.lines.get(rightPos), farX, yCoord);
+            
+            yCoord += MyPrinter.LINE_HEIGHT;
+            this.position++;
+            rightPos++;
         }
-        this.previousPage = holder;
+
+        this.position += linesPerPage / 2;
 
         return Printable.PAGE_EXISTS;
     }
