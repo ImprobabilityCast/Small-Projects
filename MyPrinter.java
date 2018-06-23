@@ -117,8 +117,9 @@ class MyPrinter implements Printable {
         }
 
         int rightPos = this.position + (linesPerPage / 2);
-        final int farX = (int) pf.getImageableWidth() / 2;
         int yCoord = MyPrinter.LINE_HEIGHT;
+        final int farX = (int) pf.getImageableWidth() / 2;
+        
         while (yCoord < pf.getImageableHeight()) {
             g2d.drawString(this.lines.get(this.position), 0, yCoord);
             g2d.drawString(this.lines.get(rightPos), farX, yCoord);
