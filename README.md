@@ -17,6 +17,9 @@ Tiny program that does nothing other than beep once. Kinda pathetic.
 ## curly
 A thingy to download webpages or parts of webpages.
 
+## JavaPrinting
+Simple application to print all the files in a directory.
+
 ## scripts
 Some general scripts.
 

@@ -3,3 +3,10 @@
 
 # Ignore binaries
 *.exe
+
+# Ignore output
+JavaPrinting/data
+*.class
+
+# Ignore vscode settings
+JavaPrinting/.vscode
