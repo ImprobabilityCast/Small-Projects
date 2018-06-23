@@ -1,6 +1,6 @@
 # Ignore output
 data
-bin
+*.class
 
 # Ignore vscode settings
 .vscode

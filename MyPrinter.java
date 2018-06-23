@@ -36,18 +36,18 @@ class MyPrinter implements Printable {
     /**
      * List of files to print.
      */
-    private Queue<String> fileNames;
+    private Queue<File> fileNames;
 
     /*
      * Constructors
      */
 
-    public MyPrinter(String... files) {
+    public MyPrinter(File... files) {
         this.lastPage = -1;
         this.previousIndex = -1;
         this.lines = new LinkedList<>();
         this.fileNames = new ArrayDeque<>();
-        for (String f : files) {
+        for (File f : files) {
             this.fileNames.add(f);
         }
     }
@@ -56,11 +56,11 @@ class MyPrinter implements Printable {
      * Reads the file specified by fileName into buffer.
      * replaces buffer.
      */
-    private static void fillBuffer(List<String> buffer, String fileName) {
+    private static void fillBuffer(List<String> buffer, File file) {
         buffer.clear();
         BufferedReader reader = null;
         try {
-            reader = new BufferedReader(new FileReader(fileName));
+            reader = new BufferedReader(new FileReader(file));
             String line = reader.readLine();
             while (line != null) {
                 buffer.add(line);
@@ -107,6 +107,8 @@ class MyPrinter implements Printable {
 
             if (pageIndex > this.lastPage) {
                 if (this.fileNames.size() > 0) {
+                    System.out.print('.');
+                    this.position = 0;
                     MyPrinter.fillBuffer(this.lines, this.fileNames.poll());
                     MyPrinter.padBuffer(this.lines, linesPerPage);
                     this.lastPage += this.lines.size() / linesPerPage;
@@ -119,7 +121,7 @@ class MyPrinter implements Printable {
         int rightPos = this.position + (linesPerPage / 2);
         int yCoord = MyPrinter.LINE_HEIGHT;
         final int farX = (int) pf.getImageableWidth() / 2;
-        
+
         while (yCoord < pf.getImageableHeight()) {
             g2d.drawString(this.lines.get(this.position), 0, yCoord);
             g2d.drawString(this.lines.get(rightPos), farX, yCoord);
