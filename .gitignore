@@ -10,3 +10,11 @@ JavaPrinting/data
 
 # Ignore vscode settings
 JavaPrinting/.vscode
+
+# Ignore rust bin
+*/target/**
+
+# Ignore recover-from-failure stuff
+recover-from-failure/out
+recover-from-failure/tmp_mnt
+recover-from-failure/Cargo.lock

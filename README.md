@@ -20,6 +20,9 @@ A thingy to download webpages or parts of webpages.
 ## JavaPrinting
 Simple application to print all the files in a directory.
 
+## recover-from-failure
+Simple app that repeatedly tries to copy images/video from a failing/damaged SD card. Recovered 99.88% of damaged data on my SD card. This only works when the damaged data is block-aligned chunks of zeros that don't always stay zeros when re-mounting the device.
+
 ## scripts
 Some general scripts.
 

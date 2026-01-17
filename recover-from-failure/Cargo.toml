@@ -1,0 +1,8 @@
+[package]
+name = "recover-from-failure"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sys-mount = "3.0.1"
+
