@@ -1,7 +1,7 @@
 #!/bin/bash
 EX=./target/release/recover-from-failure
+DEVICE="/dev/mmcblk0p1"
 cargo build -r
 sudo chown root $EX && sudo chmod a+s $EX
-$EX "/dev/mmcblk0p1"
-sudo umount "/dev/mmcblk0p1"
-
+$EX resume $DEVICE
+source ./change_date.bash

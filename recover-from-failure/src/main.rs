@@ -8,20 +8,20 @@ use std::sync::{Arc};
 use std::{thread, time};
 use std::env::*;
 use std::fs::{File, DirEntry, OpenOptions, read_dir, create_dir_all};
-use std::io::{self, StdoutLock};
+use std::io::{self, BufReader, StdoutLock};
 use std::io::prelude::*;
 use std::io::{SeekFrom};
-use std::iter;
-use std::path::PathBuf;
+use std::iter::{self};
+use std::path::{PathBuf};
 
 use sys_mount::*;
 
 
 const CHUNKSIZE: u64 = 512;
-const MAX_ATTEMPTS: u64 = 10;
-// Limit the memory the program uses. These values seem to keep it around 6-8 gigs
-const MAX_WORKER_QUEUE_SIZE: usize = 750;
-const MAX_WRITER_QUEUE_SIZE: usize = 750;
+const MAX_ATTEMPTS: u64 = 5;
+// Limit the memory the program uses
+const MAX_WORKER_QUEUE_SIZE: usize = 1_000_000;
+const MAX_WRITER_QUEUE_SIZE: usize = 1_000_000;
 
 enum TaskMsg {
     Norm(IOTask),
@@ -48,6 +48,7 @@ struct RecoveryInfo {
     out_dir: PathBuf,
     device: PathBuf,
     progress_counter: Arc::<AtomicI64>,
+    resume: bool,
 }
 
 impl FileChunk {
@@ -86,9 +87,13 @@ fn try_read(progress_counter: &Arc<AtomicI64>, task: &mut IOTask, stdout: &mut S
         f.seek(SeekFrom::Start(chunk.offset))?;
         let mut reader = f.take(chunk.len);
         // split file into chunks
-        let mut slices = buf.iter_mut().map(|inner| io::IoSliceMut::new(inner)).collect::<Vec<io::IoSliceMut<'_>>>();
-        write!(stdout, "{} - attempt: {} slices: {:8} left: {:12}\r", task.file.to_str().unwrap(), task.attempts, slices.len(), progress_counter.load(Ordering::Relaxed))?;
-        reader.read_vectored(&mut slices)?;
+        let mut idx = 0;
+        writeln!(stdout, "\nreading file: {} len: {}MiB", task.file.to_str().unwrap(), num_chunks * CHUNKSIZE / (1024 * 1024))?;
+        while let Ok(_) = reader.read(&mut buf[idx]) && idx + 1 < buf.len() {
+            idx += 1;
+        }
+        write!(stdout, "{} - attempt: {} slices: {:8} left: {:12}\r", task.file.to_str().unwrap(), task.attempts, buf.len(), progress_counter.load(Ordering::Relaxed))?;
+
         let mut idx = u64::MAX;
         new_chunks.extend(buf.drain(..).map(|b| {
             idx = idx.wrapping_add(1);
@@ -134,6 +139,7 @@ fn worker(info: RecoveryInfo, rx: Receiver<TaskMsg>, read_tx: Sender<IOTask>, wr
                 };
                 let attempts = retry_task.attempts;
                 let num_retry_chunks = retry_task.chunks.len();
+                //eprintln!("found {}", (io_task.chunks.len() - num_retry_chunks));
                 info.progress_counter.fetch_sub((io_task.chunks.len() - num_retry_chunks) as i64, Ordering::Relaxed);
                 if num_retry_chunks > 0 && let Err(e) = read_tx.send(retry_task) {
                     if attempts < MAX_ATTEMPTS {
@@ -188,7 +194,7 @@ fn read_thread(info: RecoveryInfo, rx: Receiver<IOTask>, worker_tx: SyncSender<T
     if let Err(e) = mounty.unmount(UnmountFlags::empty()) {
         eprintln!("{}", e.to_string());
     }
-    let _ = write!(stdout_lock, "read thread exiting");
+    let _ = write!(stdout_lock, "\nread thread exiting\n");
 
     let _ = worker_tx.send(TaskMsg::End);
 }
@@ -224,13 +230,26 @@ fn write_thread(info: RecoveryInfo, rx: Receiver<TaskMsg>) {
     println!("write thread exiting");
 }
 
+fn start_from_scratch(info: &RecoveryInfo) -> Vec<IOTask> {
+    file_list(&info.tmp_dir).filter_map(|f| {
+        if let Some(s) = f.path().extension() {
+            let slow = std::ffi::OsStr::to_ascii_lowercase(s);
+            if slow == "jpg" || slow == "mov" {
+                return Some(IOTask::new(f))
+            }
+        }
+        None
+    }).collect::<Vec<_>>()
+}
+
 impl RecoveryInfo {
-    fn new(device: PathBuf) -> RecoveryInfo {
+    fn new(device: PathBuf, resume: bool) -> RecoveryInfo {
         RecoveryInfo {
             tmp_dir: PathBuf::from("./tmp_mnt"),
             out_dir: PathBuf::from("./out"),
             device: device,
             progress_counter: Arc::new(AtomicI64::new(0)),
+            resume: resume,
         }
     }
 
@@ -246,38 +265,75 @@ impl RecoveryInfo {
         let mounty = Mount::builder().mount(&info.device, &info.tmp_dir)?;
 
         // intial pass
-        for file_info in file_list(&info.tmp_dir).filter(|f| {
-            match f.path().extension() {
-                Some(s) => {
-                    let slow = std::ffi::OsStr::to_ascii_lowercase(s);
-                    slow == "jpg" || slow == "mov"
-                },
-                None => false,
-            }
-        }) {
-            info.progress_counter.fetch_add(1i64, Ordering::Relaxed);
-            read_tx.send(IOTask::new(file_info)).unwrap();
+        for io_task in if info.resume {
+            resume(&info)
+        } else {
+            start_from_scratch(&info)
+        } {
+            info.progress_counter.fetch_add(io_task.chunks.len() as i64, Ordering::Relaxed);
+            read_tx.send(io_task).unwrap();
         }
 
-        let writer_info = info.clone();
-        let worker_info = info.clone();
-        let read_info = info.clone();
-        
-        let writer_th = thread::spawn(move || write_thread(writer_info, write_rx));
-        let worker_th = thread::spawn(move || worker(worker_info, to_worker_rx, read_tx, write_tx));
-        let read_th = thread::spawn(move || read_thread(read_info, read_rx, to_worker_tx, mounty));
+        if info.progress_counter.load(Ordering::Relaxed) > 0 {
+            let writer_info = info.clone();
+            let worker_info = info.clone();
+            let read_info = info.clone();
+            
+            let writer_th = thread::spawn(move || write_thread(writer_info, write_rx));
+            let worker_th = thread::spawn(move || worker(worker_info, to_worker_rx, read_tx, write_tx));
+            let read_th = thread::spawn(move || read_thread(read_info, read_rx, to_worker_tx, mounty));
 
-        writer_th.join().unwrap();
-        worker_th.join().unwrap();
-        read_th.join().unwrap();
+            writer_th.join().unwrap();
+            worker_th.join().unwrap();
+            read_th.join().unwrap();
+        }
 
         Ok(())
     }
 }
 
+fn resume(recovery: &RecoveryInfo) -> Vec<IOTask> {
+    let file_list_vec = file_list(&recovery.tmp_dir).collect::<Vec<DirEntry>>();
+    println!("Resuming...");
+    read_dir(&recovery.out_dir).unwrap().filter_map(move |p| {
+        let present = p.unwrap();
+        let meta = present.metadata().unwrap();
+        if let Ok(f) = OpenOptions::new().read(true).open(present.path()) {
+            let mut reader = BufReader::new(f);
+            let num_chunks = meta.len() / CHUNKSIZE + u64::from((meta.len() % CHUNKSIZE) > 0);
+            let mut buf = vec![vec![0u8; CHUNKSIZE as usize]; num_chunks as usize];
+
+            let mut idx = 0;
+            while reader.read(&mut buf[idx]).is_ok() && idx + 1 < buf.len() {
+                idx += 1;
+            }
+
+            let mut counter = -(CHUNKSIZE as i64);
+            let io_task = IOTask {
+                attempts: 0,
+                file: file_list_vec.iter().find(|d| d.file_name() == present.file_name()).unwrap().path(),
+                chunks: buf.drain(..).filter_map(|c| {
+                    counter += CHUNKSIZE as i64;
+                    let fc = FileChunk { offset: counter as u64, len: c.len() as u64, data: c };
+                    if fc.all_zeros() {
+                        Some(fc.no_data_clone())
+                    } else {
+                        None
+                    }
+                }).collect::<_>(),
+            };
+            if io_task.chunks.len() > 0 {
+                return Some(io_task);
+            }
+        }
+        None
+    }).collect::<Vec<_>>()
+}
+
 fn main() {
     let device = PathBuf::from(args().last().unwrap());
-    let recovery = RecoveryInfo::new(device);
+    let resume = args().len() > 2 && args().nth(1).unwrap() == "resume";
+    let recovery = RecoveryInfo::new(device, resume);
 
     if let Err(err) = RecoveryInfo::start(recovery) {
         println!("{}", "could not start");
